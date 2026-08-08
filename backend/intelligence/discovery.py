@@ -4,6 +4,39 @@ import xml.etree.ElementTree as ET
 from .models import Topic
 
 
+def is_ai_topic(title):
+
+    keywords = [
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "llm",
+        "gpt",
+        "gemini",
+        "claude",
+        "openai",
+        "anthropic",
+        "google deepmind",
+        "hugging face",
+        "robotics",
+        "neural network",
+        "generative ai",
+        "agent",
+        "ai agent",
+        "transformer",
+        "deep learning"
+    ]
+
+    title_lower = title.lower()
+
+    for keyword in keywords:
+
+        if keyword in title_lower:
+            return True
+
+    return False
+
+
 def normalize_title(title):
 
     stop_words = {
@@ -30,18 +63,13 @@ def normalize_title(title):
         "models",
         "learning",
         "system",
-        "systems",
-        "this",
-        "that",
-        "into",
-        "their",
-        "your",
-        "our"
+        "systems"
     }
 
     title = title.lower()
 
     for character in ",.:;!?-()[]{}":
+
         title = title.replace(character, " ")
 
     words = title.split()
@@ -55,50 +83,13 @@ def normalize_title(title):
     return meaningful_words
 
 
-def is_ai_topic(title):
-
-    keywords = [
-        "artificial intelligence",
-        "machine learning",
-        "large language model",
-        "language model",
-        "llm",
-        "gpt",
-        "gemini",
-        "claude",
-        "openai",
-        "anthropic",
-        "deepmind",
-        "hugging face",
-        "robotics",
-        "neural network",
-        "generative ai",
-        "ai agent",
-        "coding agent",
-        "ai app",
-        "ai tool",
-        "ai system",
-        "transformer",
-        "deep learning",
-        "machine intelligence"
-    ]
-
-    title_lower = title.lower()
-
-    for keyword in keywords:
-        if keyword in title_lower:
-            return True
-
-    return False
-
-
-def discover_topics(limit=20):
+def discover_topics(limit=10):
 
     url = "https://hacker-news.firebaseio.com/v0/newstories.json"
 
     response = requests.get(
         url,
-        timeout=10
+        timeout=15
     )
 
     response.raise_for_status()
@@ -113,14 +104,20 @@ def discover_topics(limit=20):
             f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"
         )
 
-        story_response = requests.get(
-            story_url,
-            timeout=10
-        )
+        try:
 
-        story_response.raise_for_status()
+            story_response = requests.get(
+                story_url,
+                timeout=10
+            )
 
-        story = story_response.json()
+            story_response.raise_for_status()
+
+            story = story_response.json()
+
+        except requests.RequestException:
+
+            continue
 
         if not story:
             continue
@@ -163,15 +160,31 @@ def discover_arxiv_topics(limit=5):
         "sortOrder": "descending"
     }
 
-    response = requests.get(
-        url,
-        params=params,
-        timeout=15
-    )
+    try:
 
-    response.raise_for_status()
+        response = requests.get(
+            url,
+            params=params,
+            timeout=45
+        )
 
-    root = ET.fromstring(response.text)
+        response.raise_for_status()
+
+    except requests.RequestException as error:
+
+        print("arXiv request failed:", error)
+
+        return []
+
+    try:
+
+        root = ET.fromstring(response.text)
+
+    except ET.ParseError:
+
+        print("Could not parse arXiv response.")
+
+        return []
 
     namespace = {
         "atom": "http://www.w3.org/2005/Atom"
@@ -207,28 +220,41 @@ def discover_arxiv_topics(limit=5):
         if title_element is None:
             continue
 
+        if not title_element.text:
+            continue
+
         title = " ".join(
             title_element.text.strip().split()
         )
 
         description = ""
 
-        if summary_element is not None:
-            if summary_element.text:
-                description = " ".join(
-                    summary_element.text.strip().split()
-                )
+        if (
+            summary_element is not None
+            and summary_element.text
+        ):
+
+            description = " ".join(
+                summary_element.text.strip().split()
+            )
 
         published_at = None
 
-        if published_element is not None:
+        if (
+            published_element is not None
+            and published_element.text
+        ):
+
             published_at = published_element.text
 
         article_url = ""
 
-        if link_element is not None:
-            if link_element.text:
-                article_url = link_element.text.strip()
+        if (
+            link_element is not None
+            and link_element.text
+        ):
+
+            article_url = link_element.text.strip()
 
         topic = Topic(
             title=title,

@@ -8,6 +8,7 @@ from .trend_analyzer import calculate_trend_score
 from .source_validator import calculate_source_confidence
 from .editorial_brain import make_editorial_decision
 from .memory import is_duplicate_topic, remember_topic
+from .content_generator import generate_article
 
 
 def has_cross_source_match(topic, other_topics):
@@ -54,21 +55,17 @@ def run_intelligence_pipeline():
             technical_importance = 95
             community_interest = 70
 
-        # Check cross-source confirmation
         cross_source_match = has_cross_source_match(
             topic,
             other_topics
         )
 
-        # Check duplicate memory
         duplicate = is_duplicate_topic(
             topic.title
         )
 
-        # Recency
         recency = 90
 
-        # Cross-source confirmation
         if cross_source_match:
 
             cross_source_confirmation = 100
@@ -79,7 +76,6 @@ def run_intelligence_pipeline():
             cross_source_confirmation = 40
             source_count = 1
 
-        # Calculate trend score
         trend_score = calculate_trend_score(
             recency=recency,
             source_strength=source_strength,
@@ -88,13 +84,11 @@ def run_intelligence_pipeline():
             cross_source_confirmation=cross_source_confirmation
         )
 
-        # Calculate source confidence
         source_confidence = calculate_source_confidence(
             source_count,
             source_strength
         )
 
-        # Editorial decision
         editorial_result = make_editorial_decision(
             trend_score=trend_score,
             source_confidence=source_confidence,
@@ -102,8 +96,11 @@ def run_intelligence_pipeline():
             is_duplicate=duplicate
         )
 
-        # Remember only accepted topics
+        article = None
+
         if editorial_result["decision"] == "ACCEPT":
+
+            article = generate_article(topic)
 
             remember_topic(
                 title=topic.title,
@@ -117,7 +114,8 @@ def run_intelligence_pipeline():
             "trend_score": trend_score,
             "source_confidence": source_confidence,
             "decision": editorial_result["decision"],
-            "reason": editorial_result["reason"]
+            "reason": editorial_result["reason"],
+            "article": article
         }
 
         results.append(result)
