@@ -1,362 +1,1198 @@
+
 """
 Cortex AI Discovery Engine - Article Scorer Module
 
 Module: scorer.py
-Purpose: Receives clean, normalized article dictionaries from filter.py and assigns
-         a quality/relevance score to each article. It ranks articles based on
-         source priority, title and description quality, published freshness, and AI/ML topic relevance.
+
+Purpose:
+    Receives clean, normalized article dictionaries from filter.py and
+    assigns a quality/relevance score to each article.
+
+    Ranking considers:
+        1. Source priority
+        2. Title quality
+        3. Description quality
+        4. Freshness
+        5. AI/ML topic relevance
+        6. Research/technical relevance
+        7. Category relevance
+        8. Keyword placement and diversity
+
+Design goals:
+    - Stable 0-100 scoring
+    - AI/ML-focused ranking
+    - Defensive handling of missing fields
+    - No mutation of original article dictionaries
+    - Explainable score breakdown
+    - Deterministic ranking
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import re
 from typing import Any, Dict, List, Optional
 
-# Configure logger
+
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Configuration
+# =============================================================================
+
 @dataclass(frozen=True)
 class ScoreConfig:
-    """Configurable weights, limits, and keyword criteria for article scoring."""
+    """
+    Configuration for the article scoring engine.
 
-    source_priority_weight: float = 25.0
+    The weights intentionally give topic relevance a strong influence so that
+    AI/ML-related articles rank above generic technology articles.
+    """
+
+    # Main score components
+    source_priority_weight: float = 20.0
     title_quality_weight: float = 15.0
-    description_quality_weight: float = 15.0
+    description_quality_weight: float = 10.0
     freshness_weight: float = 20.0
-    topic_relevance_weight: float = 20.0
-    research_bonus: float = 5.0
-    ai_keyword_bonus: float = 2.5
+    topic_relevance_weight: float = 30.0
+
+    # Additional relevance bonus
+    research_bonus: float = 3.0
+    category_bonus: float = 2.0
+
     max_score: float = 100.0
 
+    # -------------------------------------------------------------------------
+    # AI / ML vocabulary
+    # -------------------------------------------------------------------------
+
     ai_keywords: tuple[str, ...] = (
-        "ai",
         "artificial intelligence",
         "machine learning",
         "deep learning",
-        "llm",
         "generative ai",
+        "large language model",
+        "large language models",
+        "llm",
+        "llms",
         "transformer",
+        "transformers",
+        "natural language processing",
         "nlp",
         "computer vision",
-        "robotics",
         "neural network",
+        "neural networks",
         "foundation model",
+        "foundation models",
         "agentic ai",
+        "ai agent",
+        "ai agents",
+        "autonomous agent",
+        "autonomous agents",
+        "reinforcement learning",
+        "robotics",
+        "multimodal ai",
+        "multimodal model",
+        "diffusion model",
+        "generative model",
+        "generative models",
+        "embedding",
+        "embeddings",
+        "rag",
+        "retrieval augmented generation",
+        "fine tuning",
+        "fine-tuning",
+        "prompt engineering",
+        "ai safety",
+        "responsible ai",
+        "machine intelligence",
+        "computer intelligence",
     )
+
+    # -------------------------------------------------------------------------
+    # Research / technical vocabulary
+    # -------------------------------------------------------------------------
 
     research_keywords: tuple[str, ...] = (
         "arxiv",
-        "paper",
         "research",
+        "research paper",
+        "paper",
         "study",
         "benchmark",
+        "benchmarks",
         "dataset",
+        "datasets",
         "journal",
         "thesis",
         "preprint",
+        "experiment",
+        "experimental",
+        "evaluation",
+        "evaluations",
+        "results",
+        "model evaluation",
+        "accuracy",
+        "f1 score",
+        "precision",
+        "recall",
+        "inference",
+        "training",
+        "training data",
     )
 
+    # -------------------------------------------------------------------------
+    # Technology keywords
+    # -------------------------------------------------------------------------
+
+    technology_keywords: tuple[str, ...] = (
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "golang",
+        "go",
+        "rust",
+        "api",
+        "backend",
+        "frontend",
+        "full stack",
+        "software",
+        "programming",
+        "developer",
+        "database",
+        "cloud",
+        "aws",
+        "azure",
+        "google cloud",
+        "kubernetes",
+        "docker",
+        "linux",
+        "cybersecurity",
+        "security",
+        "data science",
+        "data engineering",
+    )
+
+    # -------------------------------------------------------------------------
+    # AI/ML categories
+    # -------------------------------------------------------------------------
+
+    relevant_categories: tuple[str, ...] = (
+        "artificial intelligence",
+        "ai",
+        "machine learning",
+        "deep learning",
+        "data science",
+        "robotics",
+        "computer vision",
+        "natural language processing",
+        "nlp",
+        "generative ai",
+        "technology",
+    )
+
+
+# =============================================================================
+# Article Scorer
+# =============================================================================
 
 class ArticleScorer:
     """
-    Evaluates, scores, and ranks articles processed by the discovery engine.
-    Ensures zero side-effects on original article data and handles missing fields defensively.
+    Evaluates, scores and ranks normalized articles.
+
+    The scorer does not modify the original article dictionary.
     """
 
-    def __init__(self, config: Optional[ScoreConfig] = None) -> None:
-        """Initialize ArticleScorer with custom or default configuration."""
+    def __init__(
+        self,
+        config: Optional[ScoreConfig] = None,
+    ) -> None:
+        """Initialize the scorer."""
+
         self.config = config or ScoreConfig()
 
-    def _score_source_priority(self, article: Dict[str, Any]) -> float:
+        logger.info(
+            "ArticleScorer initialized successfully."
+        )
+
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
+
+    @staticmethod
+    def _normalize_text(value: Any) -> str:
+        """Convert arbitrary input into normalized searchable text."""
+
+        if value is None:
+            return ""
+
+        try:
+            text = str(value).strip().lower()
+
+            # Normalize common separators
+            text = text.replace("_", " ")
+            text = text.replace("-", " ")
+
+            # Collapse whitespace
+            text = re.sub(r"\s+", " ", text)
+
+            return text
+
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _get_tags_text(article: Dict[str, Any]) -> str:
+        """Return article tags as searchable text."""
+
+        tags = article.get("tags") or []
+
+        if isinstance(tags, (list, tuple, set)):
+            return " ".join(
+                ArticleScorer._normalize_text(tag)
+                for tag in tags
+            )
+
+        return ArticleScorer._normalize_text(tags)
+
+    @staticmethod
+    def _contains_keyword(
+        text: str,
+        keyword: str,
+    ) -> bool:
         """
-        Scores article based on source priority hierarchy.
-        Priority 1 (Highest) -> 1.0 multiplier
-        Priority 2 (High)    -> 0.75 multiplier
-        Priority 3 (Medium)  -> 0.50 multiplier
-        Priority 4 (Low)     -> 0.25 multiplier
+        Safely detect a keyword.
+
+        Short keywords such as 'ai', 'go', 'nlp' use word boundaries.
+        Longer phrases use normalized substring matching.
         """
+
+        keyword_normalized = ArticleScorer._normalize_text(keyword)
+
+        if not keyword_normalized:
+            return False
+
+        if len(keyword_normalized) <= 3:
+            return bool(
+                re.search(
+                    rf"\b{re.escape(keyword_normalized)}\b",
+                    text,
+                )
+            )
+
+        return keyword_normalized in text
+
+    # =========================================================================
+    # Stage 1 - Source Priority
+    # =========================================================================
+
+    def _score_source_priority(
+        self,
+        article: Dict[str, Any],
+    ) -> float:
+        """
+        Score source priority.
+
+        Priority:
+            1 -> 100%
+            2 -> 80%
+            3 -> 60%
+            4 -> 40%
+        """
+
         try:
             priority = article.get("priority", 4)
-            if not isinstance(priority, int) or priority not in (1, 2, 3, 4):
+
+            if not isinstance(priority, int):
                 priority = 4
 
-            multiplier_map = {1: 1.0, 2: 0.75, 3: 0.50, 4: 0.25}
-            multiplier = multiplier_map.get(priority, 0.25)
-            return self.config.source_priority_weight * multiplier
-        except Exception as err:
-            logger.warning("Error scoring source priority: %s", err)
-            return self.config.source_priority_weight * 0.25
+            multiplier_map = {
+                1: 1.00,
+                2: 0.80,
+                3: 0.60,
+                4: 0.40,
+            }
 
-    def _score_title_quality(self, article: Dict[str, Any]) -> float:
+            multiplier = multiplier_map.get(
+                priority,
+                0.40,
+            )
+
+            return (
+                self.config.source_priority_weight
+                * multiplier
+            )
+
+        except Exception as err:
+            logger.warning(
+                "Source priority scoring failed: %s",
+                err,
+            )
+
+            return (
+                self.config.source_priority_weight
+                * 0.40
+            )
+
+    # =========================================================================
+    # Stage 2 - Title Quality
+    # =========================================================================
+
+    def _score_title_quality(
+        self,
+        article: Dict[str, Any],
+    ) -> float:
         """
-        Evaluates title length, casing, and formatting quality.
-        Optimal length: 30 to 120 characters.
+        Evaluate title quality.
+
+        Good titles are:
+            - informative
+            - readable
+            - neither too short nor too long
+            - not excessive in punctuation
+            - not ALL CAPS
         """
+
         try:
             title = article.get("title")
-            if not isinstance(title, str) or not title.strip():
+
+            if not isinstance(title, str):
                 return 0.0
 
-            clean_title = title.strip()
-            length = len(clean_title)
+            title = title.strip()
 
-            # Ideal length range
-            if 30 <= length <= 120:
-                multiplier = 1.0
-            elif 15 <= length < 30 or 120 < length <= 180:
-                multiplier = 0.7
+            if not title:
+                return 0.0
+
+            length = len(title)
+
+            # -------------------------------------------------------------
+            # Length score
+            # -------------------------------------------------------------
+
+            if 40 <= length <= 110:
+                score = 1.00
+
+            elif 25 <= length < 40:
+                score = 0.85
+
+            elif 110 < length <= 150:
+                score = 0.85
+
+            elif 15 <= length < 25:
+                score = 0.65
+
+            elif 150 < length <= 200:
+                score = 0.65
+
             else:
-                multiplier = 0.4
+                score = 0.45
 
-            # Penalize ALL CAPS titles
-            if clean_title.isupper() and length > 10:
-                multiplier *= 0.5
+            # -------------------------------------------------------------
+            # ALL CAPS penalty
+            # -------------------------------------------------------------
 
-            return self.config.title_quality_weight * multiplier
+            if title.isupper() and length > 10:
+                score *= 0.70
+
+            # -------------------------------------------------------------
+            # Excessive punctuation penalty
+            # -------------------------------------------------------------
+
+            punctuation_count = len(
+                re.findall(r"[!?]{2,}", title)
+            )
+
+            if punctuation_count > 0:
+                score *= 0.85
+
+            # -------------------------------------------------------------
+            # Excessive repeated characters
+            # -------------------------------------------------------------
+
+            if re.search(r"(.)\1{4,}", title):
+                score *= 0.80
+
+            return (
+                self.config.title_quality_weight
+                * score
+            )
+
         except Exception as err:
-            logger.warning("Error scoring title quality: %s", err)
+            logger.warning(
+                "Title scoring failed: %s",
+                err,
+            )
+
             return 0.0
 
-    def _score_description_quality(self, article: Dict[str, Any]) -> float:
-        """
-        Evaluates description length, word density, and structure.
-        """
+    # =========================================================================
+    # Stage 3 - Description Quality
+    # =========================================================================
+
+    def _score_description_quality(
+        self,
+        article: Dict[str, Any],
+    ) -> float:
+        """Evaluate description completeness and information density."""
+
         try:
-            desc = article.get("description")
-            if not isinstance(desc, str) or not desc.strip():
+            description = article.get("description")
+
+            if not isinstance(description, str):
                 return 0.0
 
-            clean_desc = desc.strip()
-            length = len(clean_desc)
-            word_count = len(clean_desc.split())
+            description = description.strip()
 
-            if length >= 120 and word_count >= 20:
-                multiplier = 1.0
-            elif length >= 50 and word_count >= 8:
-                multiplier = 0.7
-            elif length > 0:
-                multiplier = 0.4
+            if not description:
+                return 0.0
+
+            word_count = len(
+                description.split()
+            )
+
+            character_count = len(
+                description
+            )
+
+            if (
+                word_count >= 40
+                and character_count >= 250
+            ):
+                multiplier = 1.00
+
+            elif (
+                word_count >= 25
+                and character_count >= 150
+            ):
+                multiplier = 0.85
+
+            elif (
+                word_count >= 12
+                and character_count >= 70
+            ):
+                multiplier = 0.65
+
+            elif word_count >= 5:
+                multiplier = 0.45
+
             else:
-                multiplier = 0.0
+                multiplier = 0.25
 
-            return self.config.description_quality_weight * multiplier
+            return (
+                self.config.description_quality_weight
+                * multiplier
+            )
+
         except Exception as err:
-            logger.warning("Error scoring description quality: %s", err)
+            logger.warning(
+                "Description scoring failed: %s",
+                err,
+            )
+
             return 0.0
 
-    def _score_freshness(self, article: Dict[str, Any]) -> float:
-        """
-        Scores article freshness based on ISO published timestamp relative to current time.
-        """
+    # =========================================================================
+    # Stage 4 - Freshness
+    # =========================================================================
+
+    def _score_freshness(
+        self,
+        article: Dict[str, Any],
+    ) -> float:
+        """Score article freshness using publication timestamp."""
+
         try:
             published = article.get("published")
-            if not published or not isinstance(published, str):
-                return self.config.freshness_weight * 0.5  # Default baseline for missing timestamp
 
-            # Parse ISO date string defensively
-            pub_str = published.strip().replace("Z", "+00:00")
-            pub_dt = datetime.fromisoformat(pub_str)
+            if not isinstance(published, str):
+                return (
+                    self.config.freshness_weight
+                    * 0.40
+                )
 
-            if pub_dt.tzinfo is None:
-                pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+            published = (
+                published
+                .strip()
+                .replace("Z", "+00:00")
+            )
+
+            published_dt = datetime.fromisoformat(
+                published
+            )
+
+            if published_dt.tzinfo is None:
+                published_dt = published_dt.replace(
+                    tzinfo=timezone.utc
+                )
 
             now = datetime.now(timezone.utc)
-            age_hours = (now - pub_dt).total_seconds() / 3600.0
 
-            if age_hours <= 0:  # Future date or current
-                multiplier = 1.0
+            age_hours = (
+                now - published_dt
+            ).total_seconds() / 3600.0
+
+            # Future timestamps are treated as current.
+            if age_hours < 0:
+                age_hours = 0
+
+            # -------------------------------------------------------------
+            # Freshness curve
+            # -------------------------------------------------------------
+
+            if age_hours <= 3:
+                multiplier = 1.00
+
             elif age_hours <= 6:
-                multiplier = 1.0
+                multiplier = 0.98
+
+            elif age_hours <= 12:
+                multiplier = 0.94
+
             elif age_hours <= 24:
-                multiplier = 0.85
+                multiplier = 0.88
+
             elif age_hours <= 48:
-                multiplier = 0.65
-            elif age_hours <= 168:  # 1 week
-                multiplier = 0.40
+                multiplier = 0.72
+
+            elif age_hours <= 72:
+                multiplier = 0.60
+
+            elif age_hours <= 168:
+                multiplier = 0.42
+
+            elif age_hours <= 336:
+                multiplier = 0.25
+
             else:
-                multiplier = 0.15
+                multiplier = 0.12
 
-            return self.config.freshness_weight * multiplier
+            return (
+                self.config.freshness_weight
+                * multiplier
+            )
+
         except Exception as err:
-            logger.debug("Freshness scoring fallback for published value '%s': %s", article.get("published"), err)
-            return self.config.freshness_weight * 0.5
+            logger.debug(
+                "Freshness scoring fallback for '%s': %s",
+                article.get("published"),
+                err,
+            )
 
-    def _score_topic_relevance(self, article: Dict[str, Any]) -> float:
+            return (
+                self.config.freshness_weight
+                * 0.40
+            )
+
+    # =========================================================================
+    # Stage 5 - Topic Relevance
+    # =========================================================================
+
+    def _score_topic_relevance(
+        self,
+        article: Dict[str, Any],
+    ) -> float:
         """
-        Evaluates presence of AI/ML domain terms and scientific research indicators.
-        Calculates topic relevance score with keyword and research bonuses.
+        Calculate AI/ML relevance.
+
+        Important design choice:
+
+        A keyword appearing in the TITLE is more important than the same
+        keyword appearing only in the description.
+
+        This prevents generic technology articles from receiving the same
+        score as genuinely AI/ML-focused articles.
         """
+
         try:
-            title = str(article.get("title") or "").lower()
-            description = str(article.get("description") or "").lower()
-            tags = article.get("tags") or []
-            tags_text = " ".join(str(t).lower() for t in tags) if isinstance(tags, (list, tuple, set)) else ""
+            title = self._normalize_text(
+                article.get("title")
+            )
 
-            combined_text = f"{title} {description} {tags_text}"
+            description = self._normalize_text(
+                article.get("description")
+            )
 
-            # 1. AI Keyword Bonuses
-            matched_ai_keywords = set()
-            for kw in self.config.ai_keywords:
-                # Use boundary check for short acronyms like 'ai'
-                if len(kw) <= 3:
-                    if re.search(r"\b" + re.escape(kw) + r"\b", combined_text):
-                        matched_ai_keywords.add(kw)
-                else:
-                    if kw in combined_text:
-                        matched_ai_keywords.add(kw)
+            tags = self._get_tags_text(
+                article
+            )
 
-            ai_score = len(matched_ai_keywords) * self.config.ai_keyword_bonus
-            ai_score = min(ai_score, self.config.topic_relevance_weight)
+            category = self._normalize_text(
+                article.get("category")
+            )
 
-            # 2. Research Bonus
-            has_research_term = any(r_kw in combined_text for r_kw in self.config.research_keywords)
-            r_bonus = self.config.research_bonus if has_research_term else 0.0
+            # -------------------------------------------------------------
+            # Find AI keywords
+            # -------------------------------------------------------------
 
-            return ai_score + r_bonus
+            matched_keywords = []
+
+            for keyword in self.config.ai_keywords:
+
+                if self._contains_keyword(
+                    title,
+                    keyword,
+                ):
+                    matched_keywords.append(
+                        keyword
+                    )
+
+            # -------------------------------------------------------------
+            # Keyword diversity
+            # -------------------------------------------------------------
+
+            # More unique AI concepts = stronger relevance.
+            unique_ai_count = len(
+                set(matched_keywords)
+            )
+
+            # Base relevance points.
+            if unique_ai_count == 0:
+                ai_relevance = 0.0
+
+            elif unique_ai_count == 1:
+                ai_relevance = 8.0
+
+            elif unique_ai_count == 2:
+                ai_relevance = 14.0
+
+            elif unique_ai_count == 3:
+                ai_relevance = 19.0
+
+            elif unique_ai_count == 4:
+                ai_relevance = 23.0
+
+            else:
+                ai_relevance = 27.0
+
+            # -------------------------------------------------------------
+            # Description AI keywords
+            # -------------------------------------------------------------
+
+            description_matches = 0
+
+            for keyword in self.config.ai_keywords:
+
+                if self._contains_keyword(
+                    description,
+                    keyword,
+                ):
+                    description_matches += 1
+
+            # Description reinforces relevance.
+            description_bonus = min(
+                description_matches * 1.25,
+                5.0,
+            )
+
+            # -------------------------------------------------------------
+            # Tags AI keywords
+            # -------------------------------------------------------------
+
+            tag_matches = 0
+
+            for keyword in self.config.ai_keywords:
+
+                if self._contains_keyword(
+                    tags,
+                    keyword,
+                ):
+                    tag_matches += 1
+
+            tag_bonus = min(
+                tag_matches * 1.5,
+                5.0,
+            )
+
+            # -------------------------------------------------------------
+            # Strong title signal
+            # -------------------------------------------------------------
+
+            strong_title_terms = (
+                "artificial intelligence",
+                "machine learning",
+                "deep learning",
+                "generative ai",
+                "large language model",
+                "llm",
+                "agentic ai",
+                "computer vision",
+                "neural network",
+                "foundation model",
+                "reinforcement learning",
+            )
+
+            strong_title_match = any(
+                self._contains_keyword(
+                    title,
+                    keyword,
+                )
+                for keyword in strong_title_terms
+            )
+
+            title_relevance_bonus = (
+                3.0
+                if strong_title_match
+                else 0.0
+            )
+
+            # -------------------------------------------------------------
+            # Research relevance
+            # -------------------------------------------------------------
+
+            research_matches = 0
+
+            combined_text = (
+                f"{title} "
+                f"{description} "
+                f"{tags}"
+            )
+
+            for keyword in self.config.research_keywords:
+
+                if self._contains_keyword(
+                    combined_text,
+                    keyword,
+                ):
+                    research_matches += 1
+
+            research_bonus = min(
+                research_matches * 0.75,
+                self.config.research_bonus,
+            )
+
+            # -------------------------------------------------------------
+            # Category relevance
+            # -------------------------------------------------------------
+
+            category_bonus = 0.0
+
+            for relevant_category in (
+                self.config.relevant_categories
+            ):
+
+                if (
+                    relevant_category
+                    in category
+                ):
+                    category_bonus = (
+                        self.config.category_bonus
+                    )
+                    break
+
+            # -------------------------------------------------------------
+            # Generic technology penalty
+            # -------------------------------------------------------------
+
+            # If the article has no AI signal anywhere, do not allow it
+            # to receive a high topic-relevance score.
+            if (
+                unique_ai_count == 0
+                and description_matches == 0
+                and tag_matches == 0
+            ):
+                ai_relevance = 0.0
+
+            # -------------------------------------------------------------
+            # Final relevance
+            # -------------------------------------------------------------
+
+            relevance = (
+                ai_relevance
+                + description_bonus
+                + tag_bonus
+                + title_relevance_bonus
+                + research_bonus
+                + category_bonus
+            )
+
+            return min(
+                relevance,
+                self.config.topic_relevance_weight,
+            )
+
         except Exception as err:
-            logger.warning("Error scoring topic relevance: %s", err)
+            logger.warning(
+                "Topic relevance scoring failed: %s",
+                err,
+            )
+
             return 0.0
 
-    def score_article(self, article: Dict[str, Any]) -> Dict[str, Any]:
+    # =========================================================================
+    # Score One Article
+    # =========================================================================
+
+    def score_article(
+        self,
+        article: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
-        Calculates individual component scores and returns a NEW dictionary with 'score'
-        and 'score_breakdown' appended. Does not modify input article.
+        Score one article.
+
+        Returns a NEW dictionary so the original article remains unchanged.
         """
+
         if not isinstance(article, dict):
-            logger.error("score_article received non-dictionary input: %s", type(article))
+            logger.error(
+                "score_article received invalid type: %s",
+                type(article),
+            )
             return {}
 
-        source_score = self._score_source_priority(article)
-        title_score = self._score_title_quality(article)
-        desc_score = self._score_description_quality(article)
-        freshness_score = self._score_freshness(article)
-        relevance_score = self._score_topic_relevance(article)
+        source_score = (
+            self._score_source_priority(
+                article
+            )
+        )
 
-        raw_total = source_score + title_score + desc_score + freshness_score + relevance_score
-        final_score = min(max(raw_total, 0.0), self.config.max_score)
+        title_score = (
+            self._score_title_quality(
+                article
+            )
+        )
+
+        description_score = (
+            self._score_description_quality(
+                article
+            )
+        )
+
+        freshness_score = (
+            self._score_freshness(
+                article
+            )
+        )
+
+        relevance_score = (
+            self._score_topic_relevance(
+                article
+            )
+        )
+
+        # -------------------------------------------------------------
+        # Final score
+        # -------------------------------------------------------------
+
+        raw_score = (
+            source_score
+            + title_score
+            + description_score
+            + freshness_score
+            + relevance_score
+        )
+
+        final_score = min(
+            max(raw_score, 0.0),
+            self.config.max_score,
+        )
+
+        # -------------------------------------------------------------
+        # Breakdown
+        # -------------------------------------------------------------
 
         breakdown = {
-            "source_priority": round(source_score, 2),
-            "title_quality": round(title_score, 2),
-            "description_quality": round(desc_score, 2),
-            "freshness": round(freshness_score, 2),
-            "topic_relevance": round(relevance_score, 2),
+            "source_priority": round(
+                source_score,
+                2,
+            ),
+            "title_quality": round(
+                title_score,
+                2,
+            ),
+            "description_quality": round(
+                description_score,
+                2,
+            ),
+            "freshness": round(
+                freshness_score,
+                2,
+            ),
+            "topic_relevance": round(
+                relevance_score,
+                2,
+            ),
         }
 
-        # Create a new dictionary without mutating the original input
+        # -------------------------------------------------------------
+        # Create a new article object
+        # -------------------------------------------------------------
+
         scored_article = article.copy()
-        scored_article["score"] = round(final_score, 2)
-        scored_article["score_breakdown"] = breakdown
+
+        scored_article["score"] = round(
+            final_score,
+            2,
+        )
+
+        scored_article[
+            "score_breakdown"
+        ] = breakdown
 
         return scored_article
 
-    def score_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Batch scores a list of article dictionaries safely. Skips invalid items.
-        """
+    # =========================================================================
+    # Score Multiple Articles
+    # =========================================================================
+
+    def score_articles(
+        self,
+        articles: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Score a list of articles safely."""
+
         if not isinstance(articles, list):
-            logger.error("score_articles expected list input, received %s", type(articles))
+            logger.error(
+                "score_articles expected list, received %s",
+                type(articles),
+            )
             return []
 
-        scored_list: List[Dict[str, Any]] = []
-        for idx, art in enumerate(articles):
-            if not isinstance(art, dict):
-                logger.warning("Skipping invalid item at index %d (not a dictionary).", idx)
+        scored_articles = []
+
+        for index, article in enumerate(
+            articles
+        ):
+
+            if not isinstance(article, dict):
+                logger.warning(
+                    "Skipping invalid article at index %d.",
+                    index,
+                )
                 continue
 
             try:
-                scored = self.score_article(art)
+
+                scored = self.score_article(
+                    article
+                )
+
                 if scored:
-                    scored_list.append(scored)
+                    scored_articles.append(
+                        scored
+                    )
+
             except Exception as err:
-                logger.error("Failed to score article at index %d: %s", idx, err, exc_info=True)
 
-        logger.info("Scored %d out of %d incoming articles.", len(scored_list), len(articles))
-        return scored_list
+                logger.error(
+                    "Failed scoring article at index %d: %s",
+                    index,
+                    err,
+                    exc_info=True,
+                )
 
-    def rank_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        logger.info(
+            "Scored %d out of %d articles.",
+            len(scored_articles),
+            len(articles),
+        )
+
+        return scored_articles
+
+    # =========================================================================
+    # Ranking
+    # =========================================================================
+
+    def rank_articles(
+        self,
+        articles: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """
-        Scores articles (if unscored) and returns them sorted by score in descending order.
+        Score and rank articles in descending order.
+
+        Articles are always re-scored so changes in freshness or configuration
+        are reflected immediately.
         """
+
         if not isinstance(articles, list):
             return []
 
-        # Ensure all articles have scores
-        scored_articles: List[Dict[str, Any]] = []
-        for art in articles:
-            if isinstance(art, dict):
-                if "score" in art and isinstance(art["score"], (int, float)):
-                    scored_articles.append(art)
-                else:
-                    scored_articles.append(self.score_article(art))
+        scored_articles = []
 
-        # Sort descending by score
-        return sorted(scored_articles, key=lambda x: x.get("score", 0.0), reverse=True)
+        for article in articles:
+
+            if not isinstance(article, dict):
+                continue
+
+            try:
+                scored_articles.append(
+                    self.score_article(article)
+                )
+
+            except Exception as err:
+
+                logger.error(
+                    "Unable to rank article '%s': %s",
+                    article.get("title"),
+                    err,
+                    exc_info=True,
+                )
+
+        # -------------------------------------------------------------
+        # Deterministic sorting
+        # -------------------------------------------------------------
+
+        return sorted(
+            scored_articles,
+            key=lambda item: (
+                item.get("score", 0.0),
+                item.get("published", ""),
+                item.get("title", ""),
+            ),
+            reverse=True,
+        )
 
 
-# -----------------------------------------------------------------------------
-# Local Demonstration Block
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Local Demonstration
+# =============================================================================
+
 if __name__ == "__main__":
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format=(
+            "%(asctime)s "
+            "[%(levelname)s] "
+            "%(name)s: %(message)s"
+        ),
     )
 
-    logger.info("Starting local test demonstration for scorer.py ...")
+    logger.info(
+        "Starting local scorer demonstration..."
+    )
 
-    # Sample test dataset mimicking clean articles from filter.py
-    sample_clean_articles: List[Dict[str, Any]] = [
+    sample_articles = [
         {
-            "title": "Agentic AI Frameworks for Autonomous Machine Learning Research",
-            "url": "https://ai-journal.org/articles/agentic-ai-frameworks",
-            "description": "A comprehensive research paper evaluating foundation models and multi-agent systems on benchmarks.",
-            "published": "2026-08-08T16:00:00Z",
-            "source_name": "AI Journal",
-            "source_url": "https://ai-journal.org",
+            "title": (
+                "Agentic AI Frameworks for "
+                "Autonomous Machine Learning Research"
+            ),
+            "url": "https://example.com/ai",
+            "description": (
+                "A research paper evaluating foundation models, "
+                "large language models and multi-agent systems "
+                "using benchmarks and experimental results."
+            ),
+            "published": (
+                "2026-08-08T16:00:00Z"
+            ),
+            "source_name": "AI Research Journal",
+            "source_url": "https://example.com",
             "category": "Artificial Intelligence",
             "priority": 1,
-            "tags": ["Agentic AI", "LLM", "Research", "Benchmark"],
+            "tags": [
+                "AI",
+                "LLM",
+                "Research",
+                "Agentic AI",
+            ],
         },
         {
-            "title": "New Computer Vision Chip Released",
-            "url": "https://tech-daily.com/cv-chip-release",
-            "description": "A brief overview of new hardware designed for robotics and deep learning applications.",
-            "published": "2026-08-07T10:00:00Z",
+            "title": (
+                "New Computer Vision Chip "
+                "Released for Robotics"
+            ),
+            "url": "https://example.com/cv",
+            "description": (
+                "New hardware designed for robotics "
+                "and computer vision applications."
+            ),
+            "published": (
+                "2026-08-08T10:00:00Z"
+            ),
             "source_name": "TechDaily",
-            "source_url": "https://tech-daily.com",
-            "category": "Hardware",
+            "source_url": "https://example.com",
+            "category": "Technology",
             "priority": 3,
-            "tags": ["Computer Vision", "Robotics"],
+            "tags": [
+                "Computer Vision",
+                "Robotics",
+            ],
         },
         {
-            "title": "General Programming Updates and Patch Notes",
-            "url": "https://dev-blog.net/updates-august",
-            "description": "Standard bug fixes and internal refactoring updates for web applications.",
-            "published": "2026-08-01T12:00:00Z",
+            "title": (
+                "General Programming Updates "
+                "and Patch Notes"
+            ),
+            "url": "https://example.com/programming",
+            "description": (
+                "Standard bug fixes and internal "
+                "refactoring updates for web applications."
+            ),
+            "published": (
+                "2026-08-01T12:00:00Z"
+            ),
             "source_name": "DevBlog",
-            "source_url": "https://dev-blog.net",
+            "source_url": "https://example.com",
             "category": "Software",
             "priority": 4,
-            "tags": ["Dev", "Web"],
+            "tags": [
+                "Programming",
+                "Web",
+            ],
         },
     ]
 
     scorer = ArticleScorer()
 
-    print("\n--- Scoring and Ranking Test Articles ---")
-    ranked_articles = scorer.rank_articles(sample_clean_articles)
+    ranked = scorer.rank_articles(
+        sample_articles
+    )
 
-    for rank, item in enumerate(ranked_articles, 1):
-        print(f"\nRank #{rank}: {item['title']}")
-        print(f"  Source: {item['source_name']} (Priority {item['priority']})")
-        print(f"  Final Score: {item['score']} / 100")
-        print("  Breakdown:")
-        for component, pts in item["score_breakdown"].items():
-            print(f"    - {component}: {pts} pts")
+    print()
+    print("=" * 70)
+    print("CORTEX AI DISCOVERY ENGINE")
+    print("ARTICLE SCORER TEST")
+    print("=" * 70)
 
-    print("\n--- Immutability Check ---")
-    original_has_score = "score" in sample_clean_articles[0]
-    print(f"Original article mutated with score field? {original_has_score} (Expected: False)")
+    for rank, article in enumerate(
+        ranked,
+        start=1,
+    ):
+
+        print()
+        print(
+            f"Rank #{rank}: "
+            f"{article.get('title')}"
+        )
+
+        print(
+            f"Score: "
+            f"{article.get('score')} / 100"
+        )
+
+        print("Breakdown:")
+
+        for key, value in (
+            article.get(
+                "score_breakdown",
+                {}
+            ).items()
+        ):
+
+            print(
+                f"  {key}: {value}"
+            )
+
+    # -------------------------------------------------------------
+    # Immutability test
+    # -------------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("IMMUTABILITY CHECK")
+    print("=" * 70)
+
+    print(
+        "Original article contains score:",
+        "score" in sample_articles[0],
+    )
+
+    print(
+        "Expected:",
+        False,
+    )
+
