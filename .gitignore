@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .env
 .vscode/
+
+# Application runtime artifacts
+data/
+logs/
+*.db
