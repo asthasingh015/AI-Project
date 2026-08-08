@@ -2,28 +2,62 @@
 Cortex AI Discovery Engine - Discovery Pipeline Module
 
 Module: pipeline.py
-Purpose: Orchestrates the complete discovery workflow from source registry,
-         feed fetching, filtering, scoring/ranking, to topic queuing.
+
+Purpose:
+    Orchestrates the complete discovery workflow:
+
+    ArticleFetcher
+        -> ArticleFilter
+        -> ArticleScorer
+        -> TopicQueue
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Optional
 
-# Import discovery pipeline modules
-from discovery.sources import SourceRegistry, default_registry
-from discovery.fetcher import FeedFetcher, FetcherConfig
+from discovery.sources.fetcher import (
+    ArticleFetcher,
+    FetcherConfig,
+    FeedSource,
+)
 from discovery.filter import ArticleFilter, FilterConfig
 from discovery.scorer import ArticleScorer, ScoreConfig
 from discovery.topic_queue import TopicQueue, TopicQueueConfig
 
-# Configure logger
+
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Default RSS Sources
+# =============================================================================
+
+DEFAULT_SOURCES = [
+    FeedSource(
+        name="Hacker News",
+        url="https://hnrss.org/frontpage",
+        category="Technology",
+        priority=1,
+        tags=["Technology", "AI", "Programming", "Startups"],
+    ),
+    FeedSource(
+        name="MIT Technology Review",
+        url="https://www.technologyreview.com/feed/",
+        category="Technology",
+        priority=2,
+        tags=["Technology", "AI", "Research"],
+    ),
+]
+
+
+# =============================================================================
+# Pipeline Configuration
+# =============================================================================
+
 @dataclass
 class PipelineConfig:
-    """Configuration container encapsulating settings for each stage of the pipeline."""
+    """Configuration for all discovery pipeline stages."""
 
     fetcher_config: Optional[FetcherConfig] = None
     filter_config: Optional[FilterConfig] = None
@@ -31,9 +65,13 @@ class PipelineConfig:
     topic_queue_config: Optional[TopicQueueConfig] = None
 
 
+# =============================================================================
+# Pipeline Result
+# =============================================================================
+
 @dataclass
 class PipelineRunResult:
-    """Summary of pipeline execution metrics and results."""
+    """Stores summary information about one pipeline execution."""
 
     fetched_count: int = 0
     filtered_count: int = 0
@@ -42,7 +80,8 @@ class PipelineRunResult:
     top_topic: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts stats object to standard dictionary representation."""
+        """Convert pipeline result into a normal dictionary."""
+
         return {
             "fetched_count": self.fetched_count,
             "filtered_count": self.filtered_count,
@@ -52,127 +91,321 @@ class PipelineRunResult:
         }
 
 
+# =============================================================================
+# Discovery Pipeline
+# =============================================================================
+
 class DiscoveryPipeline:
     """
-    Central orchestrator for the Cortex AI Discovery Engine.
-    
-    Executes the multi-stage pipeline:
-        SourceRegistry -> FeedFetcher -> ArticleFilter -> ArticleScorer -> TopicQueue
+    Main orchestration layer for the Cortex AI Discovery Engine.
+
+    Pipeline flow:
+
+        ArticleFetcher
+             |
+             v
+        ArticleFilter
+             |
+             v
+        ArticleScorer
+             |
+             v
+        TopicQueue
     """
 
     def __init__(
         self,
         config: Optional[PipelineConfig] = None,
-        registry: Optional[SourceRegistry] = None,
+        fetcher: Optional[ArticleFetcher] = None,
+        article_filter: Optional[ArticleFilter] = None,
+        scorer: Optional[ArticleScorer] = None,
+        topic_queue: Optional[TopicQueue] = None,
     ) -> None:
-        """Initialize pipeline with optional stage configurations and source registry."""
+        """Initialize the discovery pipeline."""
+
         self.config = config or PipelineConfig()
-        self.registry = registry or default_registry
 
-        # Instantiate pipeline stage handlers
-        self.fetcher = FeedFetcher(
-            config=self.config.fetcher_config,
-            registry=self.registry,
+        # -----------------------------------------------------------------
+        # Create default fetcher configuration if none is supplied.
+        # This fixes the previous "0 configured source(s)" problem.
+        # -----------------------------------------------------------------
+
+        if self.config.fetcher_config is None:
+            self.config.fetcher_config = FetcherConfig(
+                max_articles_per_source=5,
+                timeout=15.0,
+                remove_duplicates=True,
+                sources=list(DEFAULT_SOURCES),
+            )
+
+        # -----------------------------------------------------------------
+        # Stage 1 - Article Fetcher
+        # -----------------------------------------------------------------
+
+        self.fetcher = (
+            fetcher
+            or ArticleFetcher(
+                config=self.config.fetcher_config
+            )
         )
-        self.filter = ArticleFilter(config=self.config.filter_config)
-        self.scorer = ArticleScorer(config=self.config.score_config)
-        self.topic_queue = TopicQueue(config=self.config.topic_queue_config)
 
-        logger.info("DiscoveryPipeline initialized successfully.")
+        # -----------------------------------------------------------------
+        # Stage 2 - Article Filter
+        # -----------------------------------------------------------------
+
+        self.filter = (
+            article_filter
+            or ArticleFilter(
+                config=self.config.filter_config
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # Stage 3 - Article Scorer
+        # -----------------------------------------------------------------
+
+        self.scorer = (
+            scorer
+            or ArticleScorer(
+                config=self.config.score_config
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # Stage 4 - Topic Queue
+        # -----------------------------------------------------------------
+
+        self.topic_queue = (
+            topic_queue
+            or TopicQueue(
+                config=self.config.topic_queue_config
+            )
+        )
+
+        logger.info(
+            "DiscoveryPipeline initialized successfully."
+        )
+
+    # =========================================================================
+    # Stage 1 - Fetch Articles
+    # =========================================================================
 
     def fetch_articles(self) -> List[Dict[str, Any]]:
-        """
-        Fetches normalized articles from enabled sources via FeedFetcher.
-        Returns a list of raw normalized article dictionaries.
-        """
-        logger.info("Pipeline stage 1: Fetching articles from enabled sources...")
+        """Fetch articles from configured RSS/Atom sources."""
+
+        logger.info(
+            "Pipeline Stage 1: Fetching articles..."
+        )
+
         try:
+
             if hasattr(self.fetcher, "fetch_all"):
                 articles = self.fetcher.fetch_all()
-            elif hasattr(self.fetcher, "fetch_articles"):
-                articles = self.fetcher.fetch_articles()
-            else:
-                articles = []
 
-            if not isinstance(articles, list):
-                logger.error("FeedFetcher returned invalid type %s, defaulting to empty list.", type(articles))
+            elif hasattr(self.fetcher, "fetch"):
+                articles = self.fetcher.fetch()
+
+            else:
+                logger.error(
+                    "ArticleFetcher does not provide fetch_all() or fetch()."
+                )
                 return []
 
-            logger.info("Successfully fetched %d raw articles.", len(articles))
+            if not isinstance(articles, list):
+                logger.error(
+                    "ArticleFetcher returned invalid type: %s",
+                    type(articles),
+                )
+                return []
+
+            logger.info(
+                "Stage 1 complete: %d articles fetched.",
+                len(articles),
+            )
+
             return articles
 
         except Exception as err:
-            logger.error("Error occurred during fetch stage: %s", err, exc_info=True)
+
+            logger.error(
+                "Fetch stage failed: %s",
+                err,
+                exc_info=True,
+            )
+
             return []
 
-    def filter_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Passes fetched articles through ArticleFilter.
-        Returns only valid, deduplicated, and clean articles.
-        """
-        logger.info("Pipeline stage 2: Filtering %d raw articles...", len(articles))
+    # =========================================================================
+    # Stage 2 - Filter Articles
+    # =========================================================================
+
+    def filter_articles(
+        self,
+        articles: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter, validate and deduplicate articles."""
+
+        logger.info(
+            "Pipeline Stage 2: Filtering %d articles...",
+            len(articles),
+        )
+
         try:
-            filtered = self.filter.filter_articles(articles)
-            logger.info("Filtering complete: %d clean articles retained.", len(filtered))
+
+            filtered = self.filter.filter_articles(
+                articles
+            )
+
+            if not isinstance(filtered, list):
+                logger.error(
+                    "ArticleFilter returned invalid type: %s",
+                    type(filtered),
+                )
+                return []
+
+            logger.info(
+                "Stage 2 complete: %d articles retained.",
+                len(filtered),
+            )
+
             return filtered
+
         except Exception as err:
-            logger.error("Error occurred during filter stage: %s", err, exc_info=True)
+
+            logger.error(
+                "Filter stage failed: %s",
+                err,
+                exc_info=True,
+            )
+
             return []
 
-    def score_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Scores and ranks clean articles using ArticleScorer.
-        Returns scored and ranked articles in descending order.
-        """
-        logger.info("Pipeline stage 3: Scoring %d clean articles...", len(articles))
+    # =========================================================================
+    # Stage 3 - Score and Rank
+    # =========================================================================
+
+    def score_articles(
+        self,
+        articles: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Score and rank filtered articles."""
+
+        logger.info(
+            "Pipeline Stage 3: Scoring %d articles...",
+            len(articles),
+        )
+
         try:
-            scored = self.scorer.rank_articles(articles)
-            logger.info("Scoring complete: %d articles scored and ranked.", len(scored))
+
+            scored = self.scorer.rank_articles(
+                articles
+            )
+
+            if not isinstance(scored, list):
+                logger.error(
+                    "ArticleScorer returned invalid type: %s",
+                    type(scored),
+                )
+                return []
+
+            logger.info(
+                "Stage 3 complete: %d articles scored.",
+                len(scored),
+            )
+
             return scored
+
         except Exception as err:
-            logger.error("Error occurred during scoring stage: %s", err, exc_info=True)
+
+            logger.error(
+                "Scoring stage failed: %s",
+                err,
+                exc_info=True,
+            )
+
             return []
 
-    def queue_articles(self, articles: List[Dict[str, Any]]) -> int:
-        """
-        Enqueues scored articles into TopicQueue.
-        Returns the number of articles successfully queued.
-        """
-        logger.info("Pipeline stage 4: Queuing %d scored articles...", len(articles))
+    # =========================================================================
+    # Stage 4 - Queue Articles
+    # =========================================================================
+
+    def queue_articles(
+        self,
+        articles: List[Dict[str, Any]],
+    ) -> int:
+        """Add scored articles into TopicQueue."""
+
+        logger.info(
+            "Pipeline Stage 4: Queuing %d articles...",
+            len(articles),
+        )
+
         try:
-            queued_count = self.topic_queue.add_articles(articles)
-            logger.info("Queuing complete: %d articles accepted into TopicQueue.", queued_count)
+
+            queued_count = self.topic_queue.add_articles(
+                articles
+            )
+
+            if not isinstance(queued_count, int):
+                logger.error(
+                    "TopicQueue returned invalid count: %s",
+                    type(queued_count),
+                )
+                return 0
+
+            logger.info(
+                "Stage 4 complete: %d articles queued.",
+                queued_count,
+            )
+
             return queued_count
+
         except Exception as err:
-            logger.error("Error occurred during queue stage: %s", err, exc_info=True)
+
+            logger.error(
+                "Queue stage failed: %s",
+                err,
+                exc_info=True,
+            )
+
             return 0
 
-    def run(self) -> PipelineRunResult:
-        """
-        Executes the complete discovery pipeline end-to-end:
-            fetch -> filter -> score -> queue
-        
-        Returns a PipelineRunResult containing stats and the top queued topic.
-        """
-        logger.info("--- Starting DiscoveryPipeline Execution ---")
+    # =========================================================================
+    # Complete Pipeline
+    # =========================================================================
 
-        # 1. Fetch
+    def run(self) -> PipelineRunResult:
+        """Execute the complete discovery pipeline."""
+
+        logger.info("=" * 60)
+        logger.info("Starting Cortex AI Discovery Pipeline")
+        logger.info("=" * 60)
+
+        # Stage 1
         raw_articles = self.fetch_articles()
         fetched_count = len(raw_articles)
 
-        # 2. Filter
-        clean_articles = self.filter_articles(raw_articles)
-        filtered_count = len(clean_articles)
+        # Stage 2
+        filtered_articles = self.filter_articles(
+            raw_articles
+        )
+        filtered_count = len(filtered_articles)
 
-        # 3. Score & Rank
-        scored_articles = self.score_articles(clean_articles)
+        # Stage 3
+        scored_articles = self.score_articles(
+            filtered_articles
+        )
         scored_count = len(scored_articles)
 
-        # 4. Queue
-        queued_count = self.queue_articles(scored_articles)
+        # Stage 4
+        queued_count = self.queue_articles(
+            scored_articles
+        )
 
+        # Top topic
         top_topic = self.get_top_topic()
 
+        # Result
         result = PipelineRunResult(
             fetched_count=fetched_count,
             filtered_count=filtered_count,
@@ -181,81 +414,289 @@ class DiscoveryPipeline:
             top_topic=top_topic,
         )
 
-        logger.info(
-            "--- Pipeline Execution Finished: Fetched=%d | Filtered=%d | Scored=%d | Queued=%d ---",
-            result.fetched_count,
-            result.filtered_count,
-            result.scored_count,
-            result.queued_count,
-        )
+        logger.info("=" * 60)
+        logger.info("Discovery Pipeline Finished")
+        logger.info("Fetched  : %d", result.fetched_count)
+        logger.info("Filtered : %d", result.filtered_count)
+        logger.info("Scored   : %d", result.scored_count)
+        logger.info("Queued   : %d", result.queued_count)
+        logger.info("=" * 60)
 
         return result
 
-    def get_topics(self) -> List[Dict[str, Any]]:
-        """Returns all currently queued topics."""
-        return self.topic_queue.get_all()
+    # =========================================================================
+    # Queue Helpers
+    # =========================================================================
 
-    def get_top_topic(self) -> Optional[Dict[str, Any]]:
-        """Returns the highest-ranked queued topic without removing it from queue, or None if empty."""
-        return self.topic_queue.peek()
+    def get_topics(self) -> List[Dict[str, Any]]:
+        """Return all currently queued topics."""
+
+        try:
+
+            topics = self.topic_queue.get_all()
+
+            if isinstance(topics, list):
+                return topics
+
+            logger.warning(
+                "TopicQueue.get_all() returned invalid type."
+            )
+
+            return []
+
+        except Exception as err:
+
+            logger.error(
+                "Unable to retrieve topics: %s",
+                err,
+                exc_info=True,
+            )
+
+            return []
+
+    def get_top_topic(
+        self,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the highest-ranked topic without removing it."""
+
+        try:
+
+            topic = self.topic_queue.peek()
+
+            if topic is None:
+                return None
+
+            if isinstance(topic, dict):
+                return topic
+
+            logger.warning(
+                "TopicQueue.peek() returned invalid type."
+            )
+
+            return None
+
+        except Exception as err:
+
+            logger.error(
+                "Unable to retrieve top topic: %s",
+                err,
+                exc_info=True,
+            )
+
+            return None
 
     def clear_queue(self) -> None:
-        """Clears all items in the TopicQueue."""
-        self.topic_queue.clear()
-        logger.info("Pipeline queue cleared.")
+        """Clear all queued topics."""
+
+        try:
+
+            self.topic_queue.clear()
+
+            logger.info(
+                "Pipeline queue cleared successfully."
+            )
+
+        except Exception as err:
+
+            logger.error(
+                "Unable to clear pipeline queue: %s",
+                err,
+                exc_info=True,
+            )
+
+    # =========================================================================
+    # Resource Management
+    # =========================================================================
 
     def close(self) -> None:
-        """Closes network connections and cleans up underlying stage resources."""
-        if hasattr(self.fetcher, "close") and callable(self.fetcher.close):
+        """Close resources used by ArticleFetcher."""
+
+        if (
+            hasattr(self.fetcher, "close")
+            and callable(self.fetcher.close)
+        ):
+
             try:
+
                 self.fetcher.close()
-                logger.info("FeedFetcher resources closed.")
+
+                logger.info(
+                    "ArticleFetcher resources closed."
+                )
+
             except Exception as err:
-                logger.warning("Error closing FeedFetcher: %s", err)
+
+                logger.warning(
+                    "Error closing ArticleFetcher: %s",
+                    err,
+                )
+
+    # =========================================================================
+    # Context Manager
+    # =========================================================================
 
     def __enter__(self) -> "DiscoveryPipeline":
-        """Context manager entry support."""
+        """Enter context manager."""
+
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit support with automatic resource cleanup."""
+    def __exit__(
+        self,
+        exc_type: Any,
+        exc_val: Any,
+        exc_tb: Any,
+    ) -> None:
+        """Automatically close resources."""
+
         self.close()
 
+    # =========================================================================
+    # Representation
+    # =========================================================================
+
     def __repr__(self) -> str:
-        """String representation of the pipeline instance."""
-        queue_size = self.topic_queue.get_size()
-        return f"<DiscoveryPipeline(sources={len(self.registry.get_enabled())}, queued_topics={queue_size})>"
+        """Return readable pipeline representation."""
+
+        try:
+            source_count = len(
+                getattr(
+                    self.fetcher.config,
+                    "sources",
+                    [],
+                )
+            )
+        except Exception:
+            source_count = 0
+
+        try:
+            queue_size = self.topic_queue.get_size()
+        except Exception:
+            queue_size = 0
+
+        return (
+            "<DiscoveryPipeline("
+            f"sources={source_count}, "
+            f"queued_topics={queue_size}"
+            ")>"
+        )
 
 
-# -----------------------------------------------------------------------------
-# Demonstration / Local Run Block
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Local Demonstration
+# =============================================================================
+
 if __name__ == "__main__":
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format=(
+            "%(asctime)s "
+            "[%(levelname)s] "
+            "%(name)s: %(message)s"
+        ),
     )
 
-    logger.info("Starting local test demonstration for pipeline.py ...")
+    print()
+    print("=" * 70)
+    print("CORTEX AI DISCOVERY ENGINE")
+    print("DISCOVERY PIPELINE TEST")
+    print("=" * 70)
 
-    # Demonstrate usage with Context Manager
-    with DiscoveryPipeline() as pipeline:
-        print(f"\nPipeline Instance: {pipeline}")
+    try:
 
-        # Run pipeline end-to-end
-        run_results = pipeline.run()
+        with DiscoveryPipeline() as pipeline:
 
-        print("\n--- Pipeline Results Summary ---")
-        print(f"Fetched Count  : {run_results.fetched_count}")
-        print(f"Filtered Count : {run_results.filtered_count}")
-        print(f"Scored Count   : {run_results.scored_count}")
-        print(f"Queued Count   : {run_results.queued_count}")
+            print()
+            print("Pipeline Instance:")
+            print(pipeline)
 
-        top = pipeline.get_top_topic()
-        if top:
-            print("\nTop Topic Discovered:")
-            print(f"  Title: {top.get('title')}")
-            print(f"  Score: {top.get('score')}")
-            print(f"  URL  : {top.get('url')}")
-        else:
-            print("\nNo topics currently in queue.")
+            print()
+            print("Running discovery pipeline...")
+            print()
+
+            result = pipeline.run()
+
+            print()
+            print("=" * 70)
+            print("PIPELINE RESULTS")
+            print("=" * 70)
+
+            print(
+                f"Fetched Articles  : {result.fetched_count}"
+            )
+
+            print(
+                f"Filtered Articles : {result.filtered_count}"
+            )
+
+            print(
+                f"Scored Articles   : {result.scored_count}"
+            )
+
+            print(
+                f"Queued Articles   : {result.queued_count}"
+            )
+
+            print()
+            print("-" * 70)
+            print("TOP DISCOVERED TOPIC")
+            print("-" * 70)
+
+            top_topic = result.top_topic
+
+            if top_topic:
+
+                print(
+                    f"Title    : "
+                    f"{top_topic.get('title', 'N/A')}"
+                )
+
+                print(
+                    f"Score    : "
+                    f"{top_topic.get('score', 'N/A')}"
+                )
+
+                print(
+                    f"Category : "
+                    f"{top_topic.get('category', 'N/A')}"
+                )
+
+                print(
+                    f"URL      : "
+                    f"{top_topic.get('url', 'N/A')}"
+                )
+
+            else:
+
+                print(
+                    "No topics were discovered."
+                )
+
+            print()
+            print("-" * 70)
+            print("RESULT AS DICTIONARY")
+            print("-" * 70)
+
+            print(
+                result.to_dict()
+            )
+
+            print()
+            print("=" * 70)
+            print("PIPELINE TEST COMPLETED")
+            print("=" * 70)
+
+    except Exception as err:
+
+        logger.error(
+            "Pipeline demonstration failed: %s",
+            err,
+            exc_info=True,
+        )
+
+        print()
+        print("=" * 70)
+        print("PIPELINE EXECUTION FAILED")
+        print("=" * 70)
+        print(f"Error: {err}")
+        print("=" * 70)
