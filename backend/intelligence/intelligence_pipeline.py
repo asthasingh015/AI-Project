@@ -1,40 +1,119 @@
-from .discovery import discover_topics
+from .discovery import (
+    discover_topics,
+    discover_arxiv_topics,
+    normalize_title
+)
+
 from .trend_analyzer import calculate_trend_score
 from .source_validator import calculate_source_confidence
 from .editorial_brain import make_editorial_decision
+from .memory import is_duplicate_topic, remember_topic
+
+
+def has_cross_source_match(topic, other_topics):
+
+    topic_words = normalize_title(topic.title)
+
+    for other_topic in other_topics:
+
+        other_words = normalize_title(other_topic.title)
+
+        common_words = topic_words.intersection(other_words)
+
+        if len(common_words) >= 2:
+            return True
+
+    return False
 
 
 def run_intelligence_pipeline():
 
-    topics = discover_topics()
+    hacker_news_topics = discover_topics(limit=20)
+
+    arxiv_topics = discover_arxiv_topics(limit=5)
+
+    topics = hacker_news_topics + arxiv_topics
 
     results = []
 
     for topic in topics:
 
-        # 1. Calculate trend score
-        trend_score = calculate_trend_score(
-            recency=95,
-            source_strength=90,
-            community_interest=85,
-            technical_importance=90,
-            cross_source_confirmation=85
+        if topic.source == "Hacker News":
+
+            other_topics = arxiv_topics
+
+            source_strength = 80
+            technical_importance = 75
+            community_interest = 85
+
+        else:
+
+            other_topics = hacker_news_topics
+
+            source_strength = 95
+            technical_importance = 95
+            community_interest = 70
+
+        # Check cross-source confirmation
+        cross_source_match = has_cross_source_match(
+            topic,
+            other_topics
         )
 
-        # 2. Calculate source confidence
-        source_confidence = calculate_source_confidence(5)
+        # Check duplicate memory
+        duplicate = is_duplicate_topic(
+            topic.title
+        )
 
-        # 3. Editorial decision
+        # Recency
+        recency = 90
+
+        # Cross-source confirmation
+        if cross_source_match:
+
+            cross_source_confirmation = 100
+            source_count = 2
+
+        else:
+
+            cross_source_confirmation = 40
+            source_count = 1
+
+        # Calculate trend score
+        trend_score = calculate_trend_score(
+            recency=recency,
+            source_strength=source_strength,
+            community_interest=community_interest,
+            technical_importance=technical_importance,
+            cross_source_confirmation=cross_source_confirmation
+        )
+
+        # Calculate source confidence
+        source_confidence = calculate_source_confidence(
+            source_count,
+            source_strength
+        )
+
+        # Editorial decision
         editorial_result = make_editorial_decision(
             trend_score=trend_score,
             source_confidence=source_confidence,
-            technical_relevance=90,
-            is_duplicate=False
+            technical_relevance=technical_importance,
+            is_duplicate=duplicate
         )
+
+        # Remember only accepted topics
+        if editorial_result["decision"] == "ACCEPT":
+
+            remember_topic(
+                title=topic.title,
+                source=topic.source
+            )
 
         result = {
             "topic": topic.title,
             "category": topic.category,
+            "source": topic.source,
             "trend_score": trend_score,
             "source_confidence": source_confidence,
             "decision": editorial_result["decision"],

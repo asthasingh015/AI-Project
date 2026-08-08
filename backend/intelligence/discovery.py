@@ -1,29 +1,86 @@
 import requests
+import xml.etree.ElementTree as ET
 
 from .models import Topic
+
+
+def normalize_title(title):
+
+    stop_words = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "from",
+        "how",
+        "what",
+        "when",
+        "via",
+        "using",
+        "new",
+        "ai",
+        "model",
+        "models",
+        "learning",
+        "system",
+        "systems",
+        "this",
+        "that",
+        "into",
+        "their",
+        "your",
+        "our"
+    }
+
+    title = title.lower()
+
+    for character in ",.:;!?-()[]{}":
+        title = title.replace(character, " ")
+
+    words = title.split()
+
+    meaningful_words = {
+        word
+        for word in words
+        if word not in stop_words and len(word) > 2
+    }
+
+    return meaningful_words
 
 
 def is_ai_topic(title):
 
     keywords = [
-        "ai",
         "artificial intelligence",
         "machine learning",
+        "large language model",
+        "language model",
         "llm",
         "gpt",
         "gemini",
         "claude",
         "openai",
         "anthropic",
-        "google deepmind",
+        "deepmind",
         "hugging face",
         "robotics",
         "neural network",
         "generative ai",
-        "agent",
         "ai agent",
+        "coding agent",
+        "ai app",
+        "ai tool",
+        "ai system",
         "transformer",
-        "deep learning"
+        "deep learning",
+        "machine intelligence"
     ]
 
     title_lower = title.lower()
@@ -35,11 +92,15 @@ def is_ai_topic(title):
     return False
 
 
-def discover_topics(limit=10):
+def discover_topics(limit=20):
 
     url = "https://hacker-news.firebaseio.com/v0/newstories.json"
 
-    response = requests.get(url, timeout=10)
+    response = requests.get(
+        url,
+        timeout=10
+    )
+
     response.raise_for_status()
 
     story_ids = response.json()
@@ -64,7 +125,7 @@ def discover_topics(limit=10):
         if not story:
             continue
 
-        title = story.get("title")
+        title = story.get("title", "")
 
         if not title:
             continue
@@ -72,7 +133,7 @@ def discover_topics(limit=10):
         if not is_ai_topic(title):
             continue
 
-        url = story.get(
+        article_url = story.get(
             "url",
             f"https://news.ycombinator.com/item?id={story_id}"
         )
@@ -82,7 +143,7 @@ def discover_topics(limit=10):
             description=title,
             category="Technology",
             source="Hacker News",
-            url=url
+            url=article_url
         )
 
         topics.append(topic)
@@ -110,4 +171,74 @@ def discover_arxiv_topics(limit=5):
 
     response.raise_for_status()
 
-    return []
+    root = ET.fromstring(response.text)
+
+    namespace = {
+        "atom": "http://www.w3.org/2005/Atom"
+    }
+
+    topics = []
+
+    for entry in root.findall(
+        "atom:entry",
+        namespace
+    ):
+
+        title_element = entry.find(
+            "atom:title",
+            namespace
+        )
+
+        summary_element = entry.find(
+            "atom:summary",
+            namespace
+        )
+
+        published_element = entry.find(
+            "atom:published",
+            namespace
+        )
+
+        link_element = entry.find(
+            "atom:id",
+            namespace
+        )
+
+        if title_element is None:
+            continue
+
+        title = " ".join(
+            title_element.text.strip().split()
+        )
+
+        description = ""
+
+        if summary_element is not None:
+            if summary_element.text:
+                description = " ".join(
+                    summary_element.text.strip().split()
+                )
+
+        published_at = None
+
+        if published_element is not None:
+            published_at = published_element.text
+
+        article_url = ""
+
+        if link_element is not None:
+            if link_element.text:
+                article_url = link_element.text.strip()
+
+        topic = Topic(
+            title=title,
+            description=description,
+            category="AI Research",
+            source="arXiv",
+            url=article_url,
+            published_at=published_at
+        )
+
+        topics.append(topic)
+
+    return topics

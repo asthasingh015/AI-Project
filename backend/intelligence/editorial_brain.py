@@ -33,7 +33,7 @@ def make_editorial_decision(
             "reason": "Technical relevance is too low."
         }
 
-    # If all checks pass
+    # All checks passed
     return {
         "decision": "ACCEPT",
         "reason": "Topic has strong relevance and sufficient evidence."
