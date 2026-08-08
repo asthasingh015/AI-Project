@@ -11,6 +11,7 @@ from typing import Optional
 from ai_intelligence.config import AIConfig
 from ai_intelligence.providers.base import BaseAIProvider
 from ai_intelligence.providers.mock import MockAIProvider
+from ai_intelligence.providers.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,11 @@ class AIProviderFactory:
     """
     Factory responsible for creating the correct AI provider.
 
-    Current supported provider:
+    Supported providers:
         - mock
+        - openai
 
     Future providers:
-        - openai
         - gemini
         - anthropic
     """
@@ -41,6 +42,9 @@ class AIProviderFactory:
 
         provider_name = (cfg.provider_name or "mock").strip().lower()
 
+        # ---------------------------------------------------------
+        # MOCK PROVIDER
+        # ---------------------------------------------------------
         if provider_name == "mock":
             logger.info(
                 "AIProviderFactory: Creating MockAIProvider with model '%s'",
@@ -48,19 +52,19 @@ class AIProviderFactory:
             )
             return MockAIProvider(config=cfg)
 
-        # Future provider integrations will be added here.
-        #
-        # Example:
-        #
-        # if provider_name == "openai":
-        #     return OpenAIProvider(config=cfg)
-        #
-        # if provider_name == "gemini":
-        #     return GeminiProvider(config=cfg)
-        #
-        # if provider_name == "anthropic":
-        #     return AnthropicProvider(config=cfg)
+        # ---------------------------------------------------------
+        # OPENAI PROVIDER
+        # ---------------------------------------------------------
+        if provider_name == "openai":
+            logger.info(
+                "AIProviderFactory: Creating OpenAIProvider with model '%s'",
+                cfg.model_name,
+            )
+            return OpenAIProvider(config=cfg)
 
+        # ---------------------------------------------------------
+        # UNKNOWN PROVIDER -> SAFE MOCK FALLBACK
+        # ---------------------------------------------------------
         logger.warning(
             "Unknown AI provider '%s'. Falling back to MockAIProvider.",
             provider_name,
