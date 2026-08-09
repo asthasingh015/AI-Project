@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Content Creator</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            padding: 30px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        button {
+            display: block;
+            margin: 20px auto;
+            padding: 12px 25px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .article {
+            background: white;
+            padding: 25px;
+            margin-top: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>🤖 AI Content Creator</h1>
+
+    <button onclick="generateArticles()">
+        Generate AI Article
+    </button>
+
+    <p id="status"></p>
+
+    <div id="articles"></div>
+
+</div>
+
+<script>
+
+async function generateArticles() {
+
+    const status = document.getElementById("status");
+    const articlesDiv = document.getElementById("articles");
+
+    status.innerText = "Generating article... Please wait.";
+    articlesDiv.innerHTML = "";
+
+    try {
+
+        const response = await fetch(
+            "http://127.0.0.1:8000/articles?limit=1"
+        );
+
+        const data = await response.json();
+
+        if (data.count === 0) {
+            status.innerText = "No topics available.";
+            return;
+        }
+
+        status.innerText = "";
+
+        data.articles.forEach(article => {
+
+            const div = document.createElement("div");
+
+            div.className = "article";
+
+            div.innerHTML = `
+                <h2>${article.title}</h2>
+
+                <h3>Summary</h3>
+                <p>${article.summary}</p>
+
+                <h3>Key Points</h3>
+                <ul>
+                    ${article.key_points
+                        .map(point => `<li>${point}</li>`)
+                        .join("")}
+                </ul>
+
+                <p><strong>Source:</strong> ${article.source}</p>
+
+                <p><strong>Category:</strong> ${article.category}</p>
+
+                <p>
+                    <strong>Source:</strong>
+                    <a href="${article.source_url}" target="_blank">
+                        Read Article
+                    </a>
+                </p>
+            `;
+
+            articlesDiv.appendChild(div);
+        });
+
+    } catch (error) {
+
+        status.innerText =
+            "Error connecting to API. Make sure the backend is running.";
+
+        console.error(error);
+    }
+}
+
+</script>
+
+</body>
+</html>
