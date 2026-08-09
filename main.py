@@ -1,6 +1,7 @@
 import logging
+import os
 
-from flask import Flask
+from flask import Flask, render_template
 
 from api.routes import api, add_post, register_agent
 from brain.identity import IdentityFactory
@@ -38,8 +39,6 @@ logger.info(
 # Stable Agent ID
 # ============================================================
 
-# IMPORTANT:
-# Ye ID restart ke baad change nahi hogi.
 AGENT_ID = "cortex-main-agent"
 
 logger.info("Agent ID: %s", AGENT_ID)
@@ -147,7 +146,6 @@ def publish_topic(topic):
 
     score = topic.get("score", 0)
 
-
     # --------------------------------------------------------
     # Generate editorial post
     # --------------------------------------------------------
@@ -169,7 +167,6 @@ def publish_topic(topic):
     if url:
         sources.append(url)
 
-
     # --------------------------------------------------------
     # Publish through PublisherEngine
     # --------------------------------------------------------
@@ -180,7 +177,6 @@ def publish_topic(topic):
         rationale=rationale,
         sources=sources,
     )
-
 
     # --------------------------------------------------------
     # Add same post to API feed
@@ -209,7 +205,7 @@ def publish_topic(topic):
 
 
 # ============================================================
-# Scheduler
+# Autonomous Scheduler
 # ============================================================
 
 scheduler = AutonomousPublisherScheduler(
@@ -231,22 +227,111 @@ scheduler = AutonomousPublisherScheduler(
 
 def create_app():
 
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        template_folder="templates",
+        static_folder="static",
+    )
+
+    # --------------------------------------------------------
+    # Register API routes
+    # --------------------------------------------------------
 
     app.register_blueprint(api)
 
-    @app.get("/")
+    # --------------------------------------------------------
+    # Frontend - Main Page
+    # --------------------------------------------------------
+
+    @app.route("/", methods=["GET"])
+    def home():
+
+        logger.info("Frontend request received: /")
+
+        return render_template(
+            "index.html",
+            agent_id=AGENT_ID,
+            agent_name=persona.name,
+            agent_domain=persona.domain,
+        )
+
+    # --------------------------------------------------------
+    # Frontend - Dashboard
+    # --------------------------------------------------------
+
+    @app.route("/dashboard", methods=["GET"])
+    def dashboard():
+
+        logger.info("Frontend request received: /dashboard")
+
+        return render_template(
+            "index.html",
+            agent_id=AGENT_ID,
+            agent_name=persona.name,
+            agent_domain=persona.domain,
+        )
+
+    # --------------------------------------------------------
+    # Health Check
+    # --------------------------------------------------------
+
+    @app.route("/health", methods=["GET"])
     def health_check():
 
         return {
             "status": "ok",
             "service": "Cortex AI Autonomous Creator",
             "agentId": AGENT_ID,
+            "agentName": persona.name,
+            "domain": persona.domain,
             "schedulerRunning": scheduler.is_running(),
         }
 
+    # --------------------------------------------------------
+    # Debug Information
+    # --------------------------------------------------------
+
+    logger.info("==============================================")
+    logger.info("Flask application created successfully.")
+    logger.info("Template folder: %s", app.template_folder)
+    logger.info("Static folder: %s", app.static_folder)
+    logger.info("==============================================")
+
+    logger.info("Registered Flask routes:")
+
+    for rule in app.url_map.iter_rules():
+        logger.info(
+            "  %-30s -> %s",
+            str(rule),
+            rule.endpoint,
+        )
+
+    # --------------------------------------------------------
+    # Check index.html
+    # --------------------------------------------------------
+
+    index_path = os.path.join(
+        app.template_folder,
+        "index.html",
+    )
+
+    if os.path.exists(index_path):
+        logger.info(
+            "Frontend index.html FOUND: %s",
+            os.path.abspath(index_path),
+        )
+    else:
+        logger.error(
+            "Frontend index.html NOT FOUND: %s",
+            os.path.abspath(index_path),
+        )
+
     return app
 
+
+# ============================================================
+# Create Flask Application
+# ============================================================
 
 app = create_app()
 
@@ -264,18 +349,37 @@ scheduler.start()
 
 if __name__ == "__main__":
 
-    logger.info(
-        "Cortex AI Autonomous Creator started."
-    )
-
-    logger.info(
-        "Agent ID: %s",
-        AGENT_ID,
-    )
-
+    logger.info("==============================================")
+    logger.info("Cortex AI Autonomous Creator started.")
+    logger.info("Agent ID: %s", AGENT_ID)
     logger.info(
         "Scheduler running: %s",
         scheduler.is_running(),
+    )
+    logger.info("==============================================")
+
+    logger.info(
+        "OPEN THIS IN CHROME:"
+    )
+
+    logger.info(
+        "http://127.0.0.1:5000/"
+    )
+
+    logger.info(
+        "Dashboard:"
+    )
+
+    logger.info(
+        "http://127.0.0.1:5000/dashboard"
+    )
+
+    logger.info(
+        "Health:"
+    )
+
+    logger.info(
+        "http://127.0.0.1:5000/health"
     )
 
     app.run(

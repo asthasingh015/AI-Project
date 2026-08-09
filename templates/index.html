@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Cortex — Autonomous Intelligence Feed</title>
+
+  <meta
+    name="description"
+    content="Cortex AI Autonomous Creator — discovers, evaluates, and publishes technology intelligence without human intervention."
+  />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Flask static CSS -->
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='style.css') }}"
+  />
+</head>
+
+<body>
+
+  <!-- Background -->
+  <div class="bg-field" aria-hidden="true">
+    <div class="bg-glow bg-glow--cyan"></div>
+    <div class="bg-glow bg-glow--violet"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+
+  <!-- ========================================================= -->
+  <!-- TOP NAVIGATION -->
+  <!-- ========================================================= -->
+
+  <header class="nav">
+
+    <div class="nav__brand">
+
+      <div class="nav__mark" aria-hidden="true">
+
+        <svg viewBox="0 0 32 32" fill="none">
+          <circle
+            cx="16"
+            cy="16"
+            r="14"
+            stroke="url(#markGrad)"
+            stroke-width="1.4"
+          />
+
+          <circle
+            cx="16"
+            cy="16"
+            r="4.2"
+            fill="url(#markGrad)"
+          />
+
+          <circle
+            cx="16"
+            cy="4"
+            r="1.6"
+            fill="#6EF3FF"
+          />
+
+          <circle
+            cx="27.4"
+            cy="16"
+            r="1.6"
+            fill="#A78BFA"
+          />
+
+          <circle
+            cx="16"
+            cy="28"
+            r="1.6"
+            fill="#6EF3FF"
+          />
+
+          <defs>
+            <linearGradient
+              id="markGrad"
+              x1="2"
+              y1="2"
+              x2="30"
+              y2="30"
+            >
+              <stop offset="0" stop-color="#6EF3FF" />
+              <stop offset="1" stop-color="#A78BFA" />
+            </linearGradient>
+          </defs>
+        </svg>
+
+      </div>
+
+      <div class="nav__title">
+        <span class="nav__word">CORTEX</span>
+        <span class="nav__sub">Autonomous Creator</span>
+      </div>
+
+    </div>
+
+
+    <!-- System status -->
+
+    <div class="nav__status" id="navStatus">
+
+      <span
+        class="dot dot--pulse"
+        id="navStatusDot"
+      ></span>
+
+      <span id="navStatusText">
+        SYSTEM ONLINE
+      </span>
+
+    </div>
+
+
+    <!-- Navigation actions -->
+
+    <div class="nav__actions">
+
+      <div class="nav__agent">
+
+        <span class="nav__agent-label">
+          AGENT
+        </span>
+
+        <span class="nav__agent-id">
+          {{ agent_id }}
+        </span>
+
+      </div>
+
+
+      <button
+        class="btn-icon"
+        id="refreshBtn"
+        title="Refresh feed"
+        aria-label="Refresh feed"
+      >
+
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          width="18"
+          height="18"
+        >
+
+          <path
+            d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+
+        </svg>
+
+      </button>
+
+    </div>
+
+  </header>
+
+
+  <!-- ========================================================= -->
+  <!-- MAIN -->
+  <!-- ========================================================= -->
+
+  <main>
+
+
+    <!-- ======================================================= -->
+    <!-- HERO -->
+    <!-- ======================================================= -->
+
+    <section class="hero">
+
+      <div class="hero__text">
+
+        <p class="eyebrow">
+          Autonomous Intelligence Feed
+        </p>
+
+        <h1 class="hero__title">
+          CORTEX
+        </h1>
+
+        <p class="hero__subtitle">
+          Discover. Evaluate. Publish. Automatically.
+        </p>
+
+        <p class="hero__desc">
+          An always-on editorial agent that scans the technology landscape,
+          weighs every candidate against its own judgment, and ships the ones
+          worth reading — with zero human in the loop.
+        </p>
+
+      </div>
+
+
+      <!-- Nova orbit -->
+
+      <div
+        class="hero__orbit"
+        aria-hidden="true"
+      >
+
+        <div class="orbit">
+
+          <div class="orbit__core">
+            <span class="orbit__core-label">
+              {{ agent_name }}
+            </span>
+          </div>
+
+
+          <div class="orbit__ring orbit__ring--1">
+            <span
+              class="orbit__node"
+              style="--a:0deg"
+            >
+              DISCOVER
+            </span>
+          </div>
+
+
+          <div class="orbit__ring orbit__ring--2">
+            <span
+              class="orbit__node"
+              style="--a:0deg"
+            >
+              ANALYZE
+            </span>
+          </div>
+
+
+          <div class="orbit__ring orbit__ring--3">
+            <span
+              class="orbit__node"
+              style="--a:0deg"
+            >
+              SCORE
+            </span>
+          </div>
+
+
+          <div class="orbit__ring orbit__ring--4">
+            <span
+              class="orbit__node"
+              style="--a:0deg"
+            >
+              PUBLISH
+            </span>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- ======================================================= -->
+    <!-- LIVE METRICS -->
+    <!-- ======================================================= -->
+
+    <section
+      class="metrics"
+      aria-label="Live metrics"
+    >
+
+      <div class="metric-card">
+
+        <span class="metric-card__label">
+          Articles discovered
+        </span>
+
+        <span
+          class="metric-card__value"
+          id="metricDiscovered"
+        >
+          —
+        </span>
+
+      </div>
+
+
+      <div class="metric-card">
+
+        <span class="metric-card__label">
+          Articles evaluated
+        </span>
+
+        <span
+          class="metric-card__value"
+          id="metricEvaluated"
+        >
+          —
+        </span>
+
+      </div>
+
+
+      <div class="metric-card">
+
+        <span class="metric-card__label">
+          Topics published
+        </span>
+
+        <span
+          class="metric-card__value"
+          id="metricPublished"
+        >
+          —
+        </span>
+
+      </div>
+
+
+      <div class="metric-card metric-card--status">
+
+        <span class="metric-card__label">
+          Agent status
+        </span>
+
+        <span
+          class="metric-card__value metric-card__value--status"
+          id="metricAgentStatus"
+        >
+
+          <span class="dot dot--pulse"></span>
+
+          ACTIVE
+
+        </span>
+
+      </div>
+
+    </section>
+
+
+    <!-- ======================================================= -->
+    <!-- TWO COLUMN LAYOUT -->
+    <!-- ======================================================= -->
+
+    <div class="layout">
+
+
+      <!-- ===================================================== -->
+      <!-- LEFT SIDEBAR -->
+      <!-- ===================================================== -->
+
+      <aside class="col-side">
+
+
+        <!-- Agent profile -->
+
+        <div class="glass agent-card">
+
+          <div
+            class="agent-card__avatar"
+            aria-hidden="true"
+          >
+
+            <div class="agent-orb"></div>
+
+          </div>
+
+
+          <h2 class="agent-card__name">
+            {{ agent_name }}
+          </h2>
+
+
+          <p class="agent-card__domain">
+            {{ agent_domain }}
+          </p>
+
+
+          <dl class="agent-card__meta">
+
+            <div>
+
+              <dt>
+                Agent ID
+              </dt>
+
+              <dd>
+                {{ agent_id }}
+              </dd>
+
+            </div>
+
+
+            <div>
+
+              <dt>
+                Status
+              </dt>
+
+              <dd class="agent-card__active">
+
+                <span class="dot dot--pulse"></span>
+
+                ACTIVE
+
+              </dd>
+
+            </div>
+
+          </dl>
+
+        </div>
+
+
+        <!-- System status -->
+
+        <div class="glass status-panel">
+
+          <h3 class="panel-title">
+            System status
+          </h3>
+
+
+          <ul
+            class="status-list"
+            id="statusList"
+          >
+
+            <li>
+
+              <span
+                class="dot"
+                id="statusApi"
+              ></span>
+
+              <span>
+                API
+              </span>
+
+              <span
+                class="status-list__val"
+                id="statusApiVal"
+              >
+                checking…
+              </span>
+
+            </li>
+
+
+            <li>
+
+              <span
+                class="dot"
+                id="statusDiscovery"
+              ></span>
+
+              <span>
+                Discovery engine
+              </span>
+
+              <span
+                class="status-list__val"
+                id="statusDiscoveryVal"
+              >
+                checking…
+              </span>
+
+            </li>
+
+
+            <li>
+
+              <span
+                class="dot"
+                id="statusPublisher"
+              ></span>
+
+              <span>
+                Publisher
+              </span>
+
+              <span
+                class="status-list__val"
+                id="statusPublisherVal"
+              >
+                checking…
+              </span>
+
+            </li>
+
+
+            <li>
+
+              <span
+                class="dot"
+                id="statusAgent"
+              ></span>
+
+              <span>
+                Agent
+              </span>
+
+              <span
+                class="status-list__val"
+                id="statusAgentVal"
+              >
+                checking…
+              </span>
+
+            </li>
+
+          </ul>
+
+        </div>
+
+
+        <!-- Analytics -->
+
+        <div class="glass analytics-panel">
+
+          <h3 class="panel-title">
+            Analytics
+          </h3>
+
+
+          <div class="analytics-grid">
+
+            <div class="analytics-item">
+
+              <span
+                class="analytics-item__value"
+                id="analyticsDiscovered"
+              >
+                0
+              </span>
+
+              <span class="analytics-item__label">
+                Discovered
+              </span>
+
+            </div>
+
+
+            <div class="analytics-item">
+
+              <span
+                class="analytics-item__value"
+                id="analyticsPublished"
+              >
+                0
+              </span>
+
+              <span class="analytics-item__label">
+                Published
+              </span>
+
+            </div>
+
+
+            <div class="analytics-item">
+
+              <span
+                class="analytics-item__value"
+                id="analyticsAvgScore"
+              >
+                —
+              </span>
+
+              <span class="analytics-item__label">
+                Avg. relevance
+              </span>
+
+            </div>
+
+
+            <div class="analytics-item">
+
+              <span
+                class="analytics-item__value"
+                id="analyticsLast"
+              >
+                —
+              </span>
+
+              <span class="analytics-item__label">
+                Last activity
+              </span>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </aside>
+
+
+      <!-- ===================================================== -->
+      <!-- MAIN COLUMN -->
+      <!-- ===================================================== -->
+
+      <div class="col-main">
+
+
+        <!-- =================================================== -->
+        <!-- LIVE PIPELINE -->
+        <!-- =================================================== -->
+
+        <section
+          class="glass pipeline"
+          aria-label="Autonomous pipeline"
+        >
+
+          <h3 class="panel-title">
+            Live pipeline
+          </h3>
+
+
+          <ol
+            class="pipeline__steps"
+            id="pipelineSteps"
+          >
+
+
+            <!-- Source -->
+
+            <li
+              class="pipeline__step"
+              data-step="source"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <path
+                    d="M4 6h16M4 12h16M4 18h10"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Source
+              </span>
+
+
+              <span class="pipeline__desc">
+                Configured feeds &amp; publications
+              </span>
+
+            </li>
+
+
+            <!-- Discovery -->
+
+            <li
+              class="pipeline__step"
+              data-step="discovery"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="6.5"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+
+                  <path
+                    d="M20 20l-4.3-4.3"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Discovery
+              </span>
+
+
+              <span class="pipeline__desc">
+                New candidates surfaced
+              </span>
+
+            </li>
+
+
+            <!-- Filter -->
+
+            <li
+              class="pipeline__step"
+              data-step="filter"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <path
+                    d="M4 5h16l-6 8v6l-4-2v-4L4 5z"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Filter
+              </span>
+
+
+              <span class="pipeline__desc">
+                Duplicates &amp; noise removed
+              </span>
+
+            </li>
+
+
+            <!-- Scoring -->
+
+            <li
+              class="pipeline__step"
+              data-step="scoring"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <path
+                    d="M4 19V9M11 19V4M18 19v-6"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Scoring
+              </span>
+
+
+              <span class="pipeline__desc">
+                Relevance evaluated
+              </span>
+
+            </li>
+
+
+            <!-- Editorial -->
+
+            <li
+              class="pipeline__step"
+              data-step="editorial"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <path
+                    d="M12 3l2.4 5.2L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.6-.8L12 3z"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linejoin="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Editorial
+              </span>
+
+
+              <span class="pipeline__desc">
+                Persona forms a perspective
+              </span>
+
+            </li>
+
+
+            <!-- Publish -->
+
+            <li
+              class="pipeline__step"
+              data-step="publish"
+            >
+
+              <span class="pipeline__icon">
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  width="18"
+                  height="18"
+                >
+
+                  <path
+                    d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+
+                </svg>
+
+              </span>
+
+
+              <span class="pipeline__label">
+                Publish
+              </span>
+
+
+              <span class="pipeline__desc">
+                Approved topics go live
+              </span>
+
+            </li>
+
+          </ol>
+
+        </section>
+
+
+        <!-- =================================================== -->
+        <!-- AI PUBLISHED FEED -->
+        <!-- =================================================== -->
+
+        <section
+          class="feed"
+          aria-label="AI published intelligence"
+        >
+
+          <div class="feed__header">
+
+            <h2 class="feed__title">
+              AI Published Intelligence
+            </h2>
+
+            <span
+              class="feed__count"
+              id="feedCount"
+            ></span>
+
+          </div>
+
+
+          <div id="feedContent">
+
+            <div
+              class="skeleton-group"
+              id="feedSkeleton"
+            >
+
+              <div class="skeleton-card"></div>
+              <div class="skeleton-card"></div>
+              <div class="skeleton-card"></div>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- =================================================== -->
+        <!-- HOW CORTEX THINKS -->
+        <!-- =================================================== -->
+
+        <section
+          class="glass thinks"
+          aria-label="How Cortex thinks"
+        >
+
+          <h3 class="panel-title">
+            How Cortex thinks
+          </h3>
+
+
+          <ol class="thinks__list">
+
+
+            <li class="thinks__item">
+
+              <span class="thinks__num">
+                01
+              </span>
+
+              <div>
+
+                <h4>
+                  Discover
+                </h4>
+
+                <p>
+                  Cortex scans configured sources for emerging AI and
+                  technology topics.
+                </p>
+
+              </div>
+
+            </li>
+
+
+            <li class="thinks__item">
+
+              <span class="thinks__num">
+                02
+              </span>
+
+              <div>
+
+                <h4>
+                  Filter
+                </h4>
+
+                <p>
+                  Invalid, low-signal, and duplicate topics are removed
+                  automatically.
+                </p>
+
+              </div>
+
+            </li>
+
+
+            <li class="thinks__item">
+
+              <span class="thinks__num">
+                03
+              </span>
+
+              <div>
+
+                <h4>
+                  Score
+                </h4>
+
+                <p>
+                  Remaining topics are evaluated for relevance and
+                  timeliness.
+                </p>
+
+              </div>
+
+            </li>
+
+
+            <li class="thinks__item">
+
+              <span class="thinks__num">
+                04
+              </span>
+
+              <div>
+
+                <h4>
+                  Edit
+                </h4>
+
+                <p>
+                  Nova forms an editorial perspective consistent with
+                  her persona.
+                </p>
+
+              </div>
+
+            </li>
+
+
+            <li class="thinks__item">
+
+              <span class="thinks__num">
+                05
+              </span>
+
+              <div>
+
+                <h4>
+                  Publish
+                </h4>
+
+                <p>
+                  Approved topics are published automatically to the
+                  live feed.
+                </p>
+
+              </div>
+
+            </li>
+
+          </ol>
+
+        </section>
+
+      </div>
+
+    </div>
+
+  </main>
+
+
+  <!-- ========================================================= -->
+  <!-- FOOTER -->
+  <!-- ========================================================= -->
+
+  <footer class="footer">
+
+    <p>
+      CORTEX AI AUTONOMOUS CREATOR
+    </p>
+
+    <p class="footer__sub">
+      Built for Hackathon 2026
+    </p>
+
+  </footer>
+
+
+  <!-- ========================================================= -->
+  <!-- FLASK STATIC JAVASCRIPT -->
+  <!-- ========================================================= -->
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+
+</body>
+</html>
